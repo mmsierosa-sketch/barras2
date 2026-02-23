@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Scanner Pro</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --green:#00e5a0;
+  --orange:#ff6b35;
+  --bg:#080c0f;
+  --surface:#0f1518;
+  --surface2:#161d21;
+  --border:#1e2a30;
+  --text:#e8f4f0;
+  --muted:#4a6672;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:'Syne',sans-serif;
+  height:100dvh;
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+}
+
+/* NAV */
+nav{
+  height:56px;
+  background:var(--surface);
+  border-bottom:1px solid var(--border);
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:0 16px;
+  flex-shrink:0;
+  z-index:20;
+}
+.nav-logo{
+  font-size:18px;
+  font-weight:800;
+  letter-spacing:-0.5px;
+  color:var(--green);
+}
+.nav-tabs{
+  display:flex;
+  gap:4px;
+}
+.tab{
+  padding:6px 14px;
+  border-radius:8px;
+  font-size:12px;
+  font-weight:700;
+  letter-spacing:0.5px;
+  text-transform:uppercase;
+  cursor:pointer;
+  border:1px solid transparent;
+  color:var(--muted);
+  transition:all .2s;
+}
+.tab.active{
+  background:var(--green);
+  color:#000;
+}
+.tab:not(.active):hover{
+  border-color:var(--border);
+  color:var(--text);
+}
+
+/* PANELES */
+.panel{display:none; flex:1; overflow:hidden; position:relative;}
+.panel.active{display:flex; flex-direction:column;}
+
+/* ===== PANEL SCANNER ===== */
+#panel-scan{position:relative;}
+
+video{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  object-fit:cover;
+}
+
+.overlay{
+  position:absolute;
+  inset:0;
+  background:rgba(8,12,15,.55);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+/* Marco */
+.frame{
+  width:260px;
+  height:260px;
+  position:relative;
+}
+.frame::before,.frame::after,.corner-bl,.corner-br{
+  content:'';
+  position:absolute;
+  width:30px;
+  height:30px;
+  border-color:var(--green);
+  border-style:solid;
+}
+.frame::before{top:0;left:0;border-width:3px 0 0 3px;border-radius:4px 0 0 0;}
+.frame::after{top:0;right:0;border-width:3px 3px 0 0;border-radius:0 4px 0 0;}
+.corner-bl{bottom:0;left:0;border-width:0 0 3px 3px;border-radius:0 0 0 4px;}
+.corner-br{bottom:0;right:0;border-width:0 3px 3px 0;border-radius:0 0 4px 0;}
+
+/* Línea de escaneo */
+.scan-line{
+  position:absolute;
+  top:0; left:0; right:0;
+  height:2px;
+  background:linear-gradient(90deg,transparent,var(--green),transparent);
+  animation:scan 2s ease-in-out infinite;
+  box-shadow:0 0 8px var(--green);
+}
+@keyframes scan{
+  0%{top:0; opacity:1}
+  49%{opacity:1}
+  50%{top:calc(100% - 2px); opacity:1}
+  100%{top:0; opacity:1}
+}
+
+/* Toast resultado */
+.toast{
+  position:absolute;
+  bottom:80px;
+  left:50%;
+  transform:translateX(-50%) translateY(10px);
+  background:var(--surface);
+  border:1px solid var(--green);
+  border-radius:12px;
+  padding:12px 20px;
+  min-width:280px;
+  text-align:center;
+  font-family:'Space Mono',monospace;
+  font-size:13px;
+  opacity:0;
+  transition:all .3s;
+  z-index:10;
+  white-space:nowrap;
+}
+.toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+.toast .product-name{font-size:15px;font-weight:700;color:var(--green);font-family:'Syne',sans-serif;}
+.toast .product-meta{color:var(--muted);margin-top:2px;font-size:11px;}
+
+/* Botón reset flotante */
+.btn-float{
+  position:absolute;
+  bottom:16px;
+  right:16px;
+  padding:10px 18px;
+  border-radius:10px;
+  background:rgba(211,47,47,.85);
+  border:none;
+  color:#fff;
+  font-family:'Syne',sans-serif;
+  font-weight:700;
+  font-size:13px;
+  cursor:pointer;
+  z-index:10;
+  backdrop-filter:blur(6px);
+}
+.btn-float:active{opacity:.7}
+
+/* ===== PANEL INVENTARIO ===== */
+#panel-inv{
+  background:var(--bg);
+  flex-direction:column;
+}
+.inv-header{
+  padding:16px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  border-bottom:1px solid var(--border);
+  flex-shrink:0;
+}
+.inv-header h2{font-size:16px;font-weight:800;}
+.inv-stats{
+  display:flex;
+  gap:12px;
+  font-size:12px;
+  font-family:'Space Mono',monospace;
+  color:var(--muted);
+}
+.stat-val{color:var(--green);font-weight:700;}
+.inv-list{
+  flex:1;
+  overflow-y:auto;
+  padding:12px;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.inv-list::-webkit-scrollbar{width:4px}
+.inv-list::-webkit-scrollbar-track{background:transparent}
+.inv-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+.inv-item{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:10px;
+  padding:12px 14px;
+  display:flex;
+  align-items:center;
+  gap:12px;
+  transition:border-color .2s;
+}
+.inv-item:hover{border-color:var(--green);}
+.inv-item .badge{
+  min-width:40px;
+  height:40px;
+  border-radius:8px;
+  background:var(--surface2);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-weight:800;
+  font-size:16px;
+  color:var(--green);
+  font-family:'Space Mono',monospace;
+}
+.inv-item .info{flex:1;}
+.inv-item .info .name{font-weight:700;font-size:14px;}
+.inv-item .info .code{font-size:10px;color:var(--muted);font-family:'Space Mono',monospace;margin-top:2px;}
+.inv-item .price{text-align:right;}
+.inv-item .price .unit{font-size:12px;color:var(--muted);}
+.inv-item .price .total{font-size:15px;font-weight:800;color:var(--green);font-family:'Space Mono',monospace;}
+.inv-item .del-btn{
+  background:none;border:1px solid var(--border);
+  color:var(--muted);border-radius:6px;
+  width:28px;height:28px;cursor:pointer;font-size:14px;
+  display:flex;align-items:center;justify-content:center;
+  transition:all .2s;flex-shrink:0;
+}
+.inv-item .del-btn:hover{border-color:#d32f2f;color:#d32f2f;}
+.empty-state{
+  flex:1;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  gap:8px;color:var(--muted);
+  font-size:14px;
+}
+.empty-state span{font-size:40px;}
+
+.inv-footer{
+  padding:12px 16px;
+  border-top:1px solid var(--border);
+  display:flex;
+  gap:8px;
+  flex-shrink:0;
+}
+.btn{
+  flex:1;padding:13px;border:none;border-radius:10px;
+  font-family:'Syne',sans-serif;font-weight:700;font-size:13px;
+  cursor:pointer;color:#fff;transition:opacity .2s;
+}
+.btn:active{opacity:.7}
+.btn-export{background:var(--green);color:#000;}
+.btn-reset{background:rgba(211,47,47,.9);}
+
+/* ===== PANEL CONFIG ===== */
+#panel-cfg{
+  background:var(--bg);
+  overflow-y:auto;
+  padding:16px;
+  gap:12px;
+}
+.cfg-section{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:16px;
+}
+.cfg-section h3{font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:12px;}
+.cfg-row{
+  display:flex;align-items:center;
+  gap:10px;padding:8px 0;
+  border-bottom:1px solid var(--border);
+}
+.cfg-row:last-child{border-bottom:none;}
+.cfg-row label{flex:1;font-size:14px;}
+.cfg-row input{
+  background:var(--surface2);border:1px solid var(--border);
+  color:var(--text);border-radius:6px;padding:6px 10px;
+  font-family:'Space Mono',monospace;font-size:12px;width:120px;
+}
+.cfg-row input:focus{outline:none;border-color:var(--green);}
+.cfg-add-btn{
+  margin-top:10px;width:100%;padding:10px;border-radius:8px;
+  background:var(--green);border:none;color:#000;
+  font-family:'Syne',sans-serif;font-weight:700;font-size:13px;cursor:pointer;
+}
+.product-list-cfg{display:flex;flex-direction:column;gap:6px;margin-bottom:10px;}
+.product-cfg-item{
+  display:flex;gap:6px;align-items:center;
+  background:var(--surface2);border-radius:8px;padding:8px 10px;
+  font-family:'Space Mono',monospace;font-size:11px;
+}
+.product-cfg-item span{flex:1;color:var(--muted);}
+.product-cfg-item .name-cfg{color:var(--text);font-size:12px;}
+.product-cfg-item button{
+  background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;
+  transition:color .2s;
+}
+.product-cfg-item button:hover{color:#d32f2f;}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-logo">⬡ SCANNER</div>
+  <div class="nav-tabs">
+    <div class="tab active" data-panel="scan">📷 Escanear</div>
+    <div class="tab" data-panel="inv">📦 Stock</div>
+    <div class="tab" data-panel="cfg">⚙ Config</div>
+  </div>
+</nav>
+
+<!-- PANEL SCANNER -->
+<div class="panel active" id="panel-scan">
+  <video id="video" autoplay playsinline muted></video>
+  <div class="overlay">
+    <div class="frame">
+      <div class="scan-line"></div>
+      <div class="corner-bl"></div>
+      <div class="corner-br"></div>
+    </div>
+  </div>
+  <div class="toast" id="toast">
+    <div class="product-name" id="toast-name"></div>
+    <div class="product-meta" id="toast-meta"></div>
+  </div>
+  <button class="btn-float" onclick="resetAll()">🗑 Reset</button>
+</div>
+
+<!-- PANEL INVENTARIO -->
+<div class="panel" id="panel-inv">
+  <div class="inv-header">
+    <h2>Inventario</h2>
+    <div class="inv-stats">
+      <span>Items: <span class="stat-val" id="stat-items">0</span></span>
+      <span>Total: <span class="stat-val" id="stat-total">0.00€</span></span>
+    </div>
+  </div>
+  <div class="inv-list" id="inv-list"></div>
+  <div class="inv-footer">
+    <button class="btn btn-export" onclick="exportExcel()">⬇ Exportar CSV</button>
+    <button class="btn btn-reset" onclick="resetAll()">🗑 Borrar todo</button>
+  </div>
+</div>
+
+<!-- PANEL CONFIG -->
+<div class="panel" id="panel-cfg">
+  <div class="cfg-section">
+    <h3>Productos registrados</h3>
+    <div class="product-list-cfg" id="products-cfg-list"></div>
+    <h3 style="margin-top:12px;margin-bottom:12px;">Añadir producto</h3>
+    <div class="cfg-row">
+      <label>Código de barras</label>
+      <input id="cfg-code" placeholder="1234567890123" type="text">
+    </div>
+    <div class="cfg-row">
+      <label>Nombre</label>
+      <input id="cfg-name" placeholder="Mi Producto" type="text">
+    </div>
+    <div class="cfg-row">
+      <label>Precio (€)</label>
+      <input id="cfg-price" placeholder="0.00" type="number" step="0.01">
+    </div>
+    <button class="cfg-add-btn" onclick="addProduct()">+ Añadir producto</button>
+  </div>
+
+  <div class="cfg-section" style="margin-top:12px;">
+    <h3>Cámara</h3>
+    <div class="cfg-row">
+      <label>Cámara trasera</label>
+      <input type="text" value="Activa" readonly style="width:80px;text-align:center;color:var(--green)">
+    </div>
+    <div class="cfg-row">
+      <label>Anti-duplicado (frames)</label>
+      <input id="cfg-frames" type="number" value="12" min="5" max="60">
+    </div>
+  </div>
+</div>
+
+<script>
+/* ========= ESTADO ========= */
+let PRODUCTS = JSON.parse(localStorage.getItem('__products') || 'null') || {
+  "2400007217681":{ name:"Protector", price:19.99 },
+  "2400007217735":{ name:"Protector", price:9.99 }
+};
+
+let lockedCode = null;
+let emptyFrames = 0;
+let EMPTY_REQUIRED = 12;
+let toastTimer = null;
+let cameraStarted = false;
+
+const video = document.getElementById("video");
+const toast = document.getElementById("toast");
+const toastName = document.getElementById("toast-name");
+const toastMeta = document.getElementById("toast-meta");
+
+/* ========= SONIDO ========= */
+let audioCtx = null;
+function getAudioCtx(){
+  if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  return audioCtx;
+}
+function beep(){
+  try{
+    const ctx = getAudioCtx();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.type = 'sine';
+    o.frequency.value = 1000;
+    g.gain.setValueAtTime(0, ctx.currentTime);
+    g.gain.linearRampToValueAtTime(0.15, ctx.currentTime+0.01);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.18);
+    o.start(ctx.currentTime);
+    o.stop(ctx.currentTime+0.2);
+  }catch(e){}
+}
+
+/* ========= TABS ========= */
+document.querySelectorAll('.tab').forEach(t=>{
+  t.addEventListener('click',()=>{
+    const id = t.dataset.panel;
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById('panel-'+id).classList.add('active');
+
+    if(id==='inv') renderInventory();
+    if(id==='cfg') renderProductsCfg();
+    if(id==='scan' && !cameraStarted) startCamera();
+  });
+});
+
+/* ========= CÁMARA ========= */
+function startCamera(){
+  if(!("BarcodeDetector" in window)){
+    toast.classList.add('show');
+    toastName.textContent = '⚠ BarcodeDetector no soportado';
+    toastMeta.textContent = 'Usa Chrome en Android';
+    return;
+  }
+  navigator.mediaDevices.getUserMedia({ video:{ facingMode:"environment" } })
+    .then(stream=>{
+      video.srcObject = stream;
+      cameraStarted = true;
+      const detector = new BarcodeDetector();
+      requestAnimationFrame(()=>scan(detector));
+    })
+    .catch(()=>{
+      toastName.textContent = '⚠ Sin acceso a cámara';
+      toast.classList.add('show');
+    });
+}
+startCamera();
+
+/* ========= ESCANEO ========= */
+async function scan(detector){
+  try{
+    const codes = await detector.detect(video);
+    EMPTY_REQUIRED = Number(document.getElementById('cfg-frames').value)||12;
+
+    if(!codes.length){
+      emptyFrames++;
+      if(emptyFrames > EMPTY_REQUIRED) lockedCode = null;
+    } else {
+      emptyFrames = 0;
+      const code = codes[0].rawValue;
+      if(code !== lockedCode){
+        lockedCode = code;
+        let qty = Number(localStorage.getItem('item_'+code)||0)+1;
+        localStorage.setItem('item_'+code, qty);
+        beep();
+        navigator.vibrate?.(80);
+        showToast(code, qty);
+      }
+    }
+  }catch(e){}
+  requestAnimationFrame(()=>scan(detector));
+}
+
+/* ========= TOAST ========= */
+function showToast(code, qty){
+  const p = PRODUCTS[code] || { name:'Desconocido', price:0 };
+  toastName.textContent = p.name;
+  toastMeta.textContent = `${code} · ${p.price.toFixed(2)}€ · Cantidad: ${qty}`;
+  toast.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>toast.classList.remove('show'), 3000);
+}
+
+/* ========= INVENTARIO ========= */
+function getScanKeys(){
+  return Object.keys(localStorage).filter(k=>k.startsWith('item_'));
+}
+function renderInventory(){
+  const list = document.getElementById('inv-list');
+  const keys = getScanKeys();
+  let totalItems=0, totalVal=0;
+
+  if(!keys.length){
+    list.innerHTML='<div class="empty-state"><span>📦</span><p>Sin productos escaneados</p></div>';
+    document.getElementById('stat-items').textContent='0';
+    document.getElementById('stat-total').textContent='0.00€';
+    return;
+  }
+
+  list.innerHTML='';
+  keys.forEach(k=>{
+    const code = k.replace('item_','');
+    const qty = Number(localStorage.getItem(k));
+    const p = PRODUCTS[code]||{name:'Desconocido',price:0};
+    const total = (p.price*qty).toFixed(2);
+    totalItems+=qty; totalVal+=p.price*qty;
+
+    const div=document.createElement('div');
+    div.className='inv-item';
+    div.innerHTML=`
+      <div class="badge">${qty}</div>
+      <div class="info">
+        <div class="name">${p.name}</div>
+        <div class="code">${code}</div>
+      </div>
+      <div class="price">
+        <div class="unit">${p.price.toFixed(2)}€/u</div>
+        <div class="total">${total}€</div>
+      </div>
+      <button class="del-btn" title="Eliminar" onclick="deleteItem('${code}')">×</button>
+    `;
+    list.appendChild(div);
+  });
+
+  document.getElementById('stat-items').textContent=totalItems;
+  document.getElementById('stat-total').textContent=totalVal.toFixed(2)+'€';
+}
+function deleteItem(code){
+  localStorage.removeItem('item_'+code);
+  renderInventory();
+}
+
+/* ========= CONFIG PRODUCTOS ========= */
+function saveProducts(){ localStorage.setItem('__products', JSON.stringify(PRODUCTS)); }
+function addProduct(){
+  const code=document.getElementById('cfg-code').value.trim();
+  const name=document.getElementById('cfg-name').value.trim();
+  const price=parseFloat(document.getElementById('cfg-price').value)||0;
+  if(!code||!name){ alert('Código y nombre obligatorios'); return; }
+  PRODUCTS[code]={ name, price };
+  saveProducts();
+  document.getElementById('cfg-code').value='';
+  document.getElementById('cfg-name').value='';
+  document.getElementById('cfg-price').value='';
+  renderProductsCfg();
+}
+function deleteProduct(code){
+  delete PRODUCTS[code]; saveProducts(); renderProductsCfg();
+}
+function renderProductsCfg(){
+  const el=document.getElementById('products-cfg-list');
+  const keys=Object.keys(PRODUCTS);
+  if(!keys.length){ el.innerHTML='<div style="color:var(--muted);font-size:12px;padding:4px 0">Sin productos</div>'; return; }
+  el.innerHTML=keys.map(c=>`
+    <div class="product-cfg-item">
+      <div>
+        <div class="name-cfg">${PRODUCTS[c].name}</div>
+        <span>${c} · ${PRODUCTS[c].price.toFixed(2)}€</span>
+      </div>
+      <button onclick="deleteProduct('${c}')">✕</button>
+    </div>
+  `).join('');
+}
+
+/* ========= EXPORT ========= */
+function exportExcel(){
+  const BOM='\uFEFF';
+  let csv=BOM+'Codigo;Producto;Precio;Cantidad;Total\n';
+  getScanKeys().forEach(k=>{
+    const c=k.replace('item_','');
+    const q=Number(localStorage.getItem(k));
+    const p=PRODUCTS[c]||{name:'Desconocido',price:0};
+    csv+=`${c};${p.name};${p.price.toFixed(2)};${q};${(p.price*q).toFixed(2)}\n`;
+  });
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`inventario_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+}
+
+/* ========= RESET ========= */
+function resetAll(){
+  if(confirm('¿Borrar todo el inventario escaneado?')){
+    getScanKeys().forEach(k=>localStorage.removeItem(k));
+    lockedCode=null;
+    toast.classList.remove('show');
+    renderInventory();
+  }
+}
+</script>
+</body>
+</html>
