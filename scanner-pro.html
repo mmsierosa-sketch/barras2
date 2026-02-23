@@ -399,6 +399,8 @@ let PRODUCTS = JSON.parse(localStorage.getItem('__products') || 'null') || {
 };
 
 let lockedCode = null;
+let lockedAt = 0;           // timestamp del último escaneo registrado
+const LOCK_MS = 2500;       // ms que debe pasar antes de volver a contar el MISMO código
 let emptyFrames = 0;
 let EMPTY_REQUIRED = 12;
 let toastTimer = null;
@@ -472,16 +474,27 @@ startCamera();
 async function scan(detector){
   try{
     const codes = await detector.detect(video);
-    EMPTY_REQUIRED = Number(document.getElementById('cfg-frames').value)||12;
 
-    if(!codes.length){
+    // Filtramos: solo EAN-13 (exactamente 13 dígitos numéricos)
+    const valid = codes.filter(c => /^\d{13}$/.test(c.rawValue));
+
+    if(!valid.length){
       emptyFrames++;
+      // Si llevan suficientes frames sin ver ningún código, liberamos el lock
+      EMPTY_REQUIRED = Number(document.getElementById('cfg-frames').value)||12;
       if(emptyFrames > EMPTY_REQUIRED) lockedCode = null;
     } else {
       emptyFrames = 0;
-      const code = codes[0].rawValue;
-      if(code !== lockedCode){
+      const code = valid[0].rawValue;
+      const now = Date.now();
+
+      // Evitar doble conteo: mismo código dentro del período de lock
+      const isSame   = code === lockedCode;
+      const inWindow = (now - lockedAt) < LOCK_MS;
+
+      if(!isSame || !inWindow){
         lockedCode = code;
+        lockedAt   = now;
         let qty = Number(localStorage.getItem('item_'+code)||0)+1;
         localStorage.setItem('item_'+code, qty);
         beep();
@@ -606,6 +619,7 @@ function resetAll(){
   if(confirm('¿Borrar todo el inventario escaneado?')){
     getScanKeys().forEach(k=>localStorage.removeItem(k));
     lockedCode=null;
+    lockedAt=0;
     toast.classList.remove('show');
     renderInventory();
   }
