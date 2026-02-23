@@ -471,38 +471,51 @@ function startCamera(){
 startCamera();
 
 /* ========= ESCANEO ========= */
+let isProcessing = false; // flag: bloquea conteos simultáneos en el mismo frame
+
 async function scan(detector){
-  try{
-    const codes = await detector.detect(video);
+  if(!isProcessing){
+    try{
+      const codes = await detector.detect(video);
 
-    // Filtramos: solo EAN-13 (exactamente 13 dígitos numéricos)
-    const valid = codes.filter(c => /^\d{13}$/.test(c.rawValue));
+      // Solo EAN-13: exactamente 13 dígitos numéricos
+      const valid = codes.filter(c => /^\d{13}$/.test(c.rawValue));
 
-    if(!valid.length){
-      emptyFrames++;
-      // Si llevan suficientes frames sin ver ningún código, liberamos el lock
-      EMPTY_REQUIRED = Number(document.getElementById('cfg-frames').value)||12;
-      if(emptyFrames > EMPTY_REQUIRED) lockedCode = null;
-    } else {
-      emptyFrames = 0;
-      const code = valid[0].rawValue;
-      const now = Date.now();
+      if(!valid.length){
+        emptyFrames++;
+        EMPTY_REQUIRED = Number(document.getElementById('cfg-frames').value)||12;
+        if(emptyFrames > EMPTY_REQUIRED){
+          lockedCode = null;
+          lockedAt   = 0;
+          emptyFrames = 0;
+        }
+      } else {
+        emptyFrames = 0;
+        const code    = valid[0].rawValue;
+        const now     = Date.now();
+        const elapsed = now - lockedAt;
 
-      // Evitar doble conteo: mismo código dentro del período de lock
-      const isSame   = code === lockedCode;
-      const inWindow = (now - lockedAt) < LOCK_MS;
+        // Contar SOLO si: código distinto, O mismo código pero ya pasó el cooldown
+        const shouldCount = (code !== lockedCode) || (elapsed >= LOCK_MS);
 
-      if(!isSame || !inWindow){
-        lockedCode = code;
-        lockedAt   = now;
-        let qty = Number(localStorage.getItem('item_'+code)||0)+1;
-        localStorage.setItem('item_'+code, qty);
-        beep();
-        navigator.vibrate?.(80);
-        showToast(code, qty);
+        if(shouldCount){
+          isProcessing = true;   // bloquear inmediatamente (síncrono)
+          lockedCode = code;
+          lockedAt   = now;
+
+          let qty = Number(localStorage.getItem('item_'+code)||0)+1;
+          localStorage.setItem('item_'+code, qty);
+          beep();
+          navigator.vibrate?.(80);
+          showToast(code, qty);
+
+          // Soltar el flag tras 400ms (cubre varios frames a 60fps)
+          setTimeout(()=>{ isProcessing = false; }, 400);
+        }
       }
-    }
-  }catch(e){}
+    }catch(e){}
+  }
+
   requestAnimationFrame(()=>scan(detector));
 }
 
