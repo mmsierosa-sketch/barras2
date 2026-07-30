@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Scanner Pro</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.20.0/umd/index.min.js"></script>
 <style>
 :root{
   --green:#00e5a0;
@@ -92,6 +93,7 @@ video{
   display:flex;
   align-items:center;
   justify-content:center;
+  pointer-events:none;
 }
 
 /* Marco */
@@ -151,6 +153,22 @@ video{
 .toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
 .toast .product-name{font-size:15px;font-weight:700;color:var(--green);font-family:'Syne',sans-serif;}
 .toast .product-meta{color:var(--muted);margin-top:2px;font-size:11px;}
+
+/* Aviso de estado de cámara/permiso */
+.cam-status{
+  position:absolute;
+  top:16px;left:16px;right:16px;
+  background:rgba(211,47,47,.9);
+  color:#fff;
+  border-radius:10px;
+  padding:10px 14px;
+  font-size:13px;
+  font-weight:700;
+  text-align:center;
+  z-index:15;
+  display:none;
+}
+.cam-status.show{display:block;}
 
 /* Botón reset flotante */
 .btn-float{
@@ -334,6 +352,7 @@ video{
       <div class="corner-br"></div>
     </div>
   </div>
+  <div class="cam-status" id="cam-status"></div>
   <div class="toast" id="toast">
     <div class="product-name" id="toast-name"></div>
     <div class="product-meta" id="toast-meta"></div>
@@ -381,12 +400,12 @@ video{
   <div class="cfg-section" style="margin-top:12px;">
     <h3>Cámara</h3>
     <div class="cfg-row">
-      <label>Cámara trasera</label>
-      <input type="text" value="Activa" readonly style="width:80px;text-align:center;color:var(--green)">
+      <label>Motor de escaneo</label>
+      <input type="text" value="ZXing (universal)" readonly style="width:140px;text-align:center;color:var(--green)">
     </div>
     <div class="cfg-row">
-      <label>Anti-duplicado (frames)</label>
-      <input id="cfg-frames" type="number" value="12" min="5" max="60">
+      <label>Cooldown mismo código (ms)</label>
+      <input id="cfg-cooldown" type="number" value="2500" min="500" max="10000" step="100">
     </div>
   </div>
 </div>
@@ -398,18 +417,31 @@ let PRODUCTS = JSON.parse(localStorage.getItem('__products') || 'null') || {
   "2400007217735":{ name:"Protector", price:9.99 }
 };
 
+let scannedItems = JSON.parse(localStorage.getItem('__scanned') || '{}');
+
 let lockedCode = null;
-let lockedAt = 0;           // timestamp del último escaneo registrado
-const LOCK_MS = 2500;       // ms que debe pasar antes de volver a contar el MISMO código
-let emptyFrames = 0;
-let EMPTY_REQUIRED = 12;
+let lockedAt = 0;
 let toastTimer = null;
-let cameraStarted = false;
+let cameraActive = false;
+let codeReader = null;
 
 const video = document.getElementById("video");
 const toast = document.getElementById("toast");
 const toastName = document.getElementById("toast-name");
 const toastMeta = document.getElementById("toast-meta");
+const camStatus = document.getElementById("cam-status");
+
+/* ========= UTILIDADES ========= */
+function escapeHtml(str){
+  return String(str).replace(/[&<>"']/g, m => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[m]));
+}
+// Evita "CSV injection": si un campo empieza por = + - @ Excel puede interpretarlo como fórmula
+function csvSafe(val){
+  const s = String(val);
+  return /^[=+\-@]/.test(s) ? "'" + s : s;
+}
 
 /* ========= SONIDO ========= */
 let audioCtx = null;
@@ -444,79 +476,90 @@ document.querySelectorAll('.tab').forEach(t=>{
 
     if(id==='inv') renderInventory();
     if(id==='cfg') renderProductsCfg();
-    if(id==='scan' && !cameraStarted) startCamera();
+
+    // Solo la cámara del panel scan consume batería: apagarla en otras pestañas
+    if(id==='scan') startCamera();
+    else stopCamera();
   });
 });
 
-/* ========= CÁMARA ========= */
+/* ========= CÁMARA (ZXing: funciona en Chrome, Safari/iOS, Firefox...) ========= */
+function showCamStatus(msg){
+  camStatus.textContent = msg;
+  camStatus.classList.add('show');
+}
+function hideCamStatus(){
+  camStatus.classList.remove('show');
+}
+
 function startCamera(){
-  if(!("BarcodeDetector" in window)){
-    toast.classList.add('show');
-    toastName.textContent = '⚠ BarcodeDetector no soportado';
-    toastMeta.textContent = 'Usa Chrome en Android';
+  if(cameraActive) return;
+  if(typeof ZXing === 'undefined'){
+    showCamStatus('⚠ No se pudo cargar el motor de escaneo (revisa la conexión)');
     return;
   }
-  navigator.mediaDevices.getUserMedia({ video:{ facingMode:"environment" } })
-    .then(stream=>{
-      video.srcObject = stream;
-      cameraStarted = true;
-      const detector = new BarcodeDetector();
-      requestAnimationFrame(()=>scan(detector));
-    })
-    .catch(()=>{
-      toastName.textContent = '⚠ Sin acceso a cámara';
-      toast.classList.add('show');
-    });
+  hideCamStatus();
+
+  const hints = new Map();
+  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.EAN_13]);
+  codeReader = new ZXing.BrowserMultiFormatReader(hints);
+
+  const constraints = { video: { facingMode: { ideal: "environment" } } };
+
+  codeReader.decodeFromConstraints(constraints, video, (result, err) => {
+    if(result){
+      handleDetectedCode(result.getText());
+    }
+    // err de "no encontrado en este frame" es normal y se ignora;
+    // solo nos interesan errores reales de cámara, que llegan por el .catch de abajo.
+  }).then(() => {
+    cameraActive = true;
+  }).catch((err) => {
+    console.error('Error de cámara:', err);
+    if(err && err.name === 'NotAllowedError'){
+      showCamStatus('⚠ Permiso de cámara denegado. Actívalo en Ajustes del navegador.');
+    } else {
+      showCamStatus('⚠ No se pudo acceder a la cámara en este dispositivo/navegador.');
+    }
+  });
 }
-startCamera();
 
-/* ========= ESCANEO ========= */
-let isProcessing = false; // flag: bloquea conteos simultáneos en el mismo frame
-
-async function scan(detector){
-  if(!isProcessing){
-    try{
-      const codes = await detector.detect(video);
-
-      // Solo EAN-13: exactamente 13 dígitos numéricos
-      const valid = codes.filter(c => /^\d{13}$/.test(c.rawValue));
-
-      if(!valid.length){
-        emptyFrames++;
-        EMPTY_REQUIRED = Number(document.getElementById('cfg-frames').value)||12;
-        if(emptyFrames > EMPTY_REQUIRED){
-          lockedCode = null;
-          lockedAt   = 0;
-          emptyFrames = 0;
-        }
-      } else {
-        emptyFrames = 0;
-        const code    = valid[0].rawValue;
-        const now     = Date.now();
-        const elapsed = now - lockedAt;
-
-        // Contar SOLO si: código distinto, O mismo código pero ya pasó el cooldown
-        const shouldCount = (code !== lockedCode) || (elapsed >= LOCK_MS);
-
-        if(shouldCount){
-          isProcessing = true;   // bloquear inmediatamente (síncrono)
-          lockedCode = code;
-          lockedAt   = now;
-
-          let qty = Number(localStorage.getItem('item_'+code)||0)+1;
-          localStorage.setItem('item_'+code, qty);
-          beep();
-          navigator.vibrate?.(80);
-          showToast(code, qty);
-
-          // Soltar el flag tras 400ms (cubre varios frames a 60fps)
-          setTimeout(()=>{ isProcessing = false; }, 400);
-        }
-      }
-    }catch(e){}
+function stopCamera(){
+  if(codeReader){
+    codeReader.reset();
   }
+  cameraActive = false;
+}
 
-  requestAnimationFrame(()=>scan(detector));
+// Iniciar al cargar (estamos en el tab "scan" por defecto)
+window.addEventListener('load', startCamera);
+// Liberar cámara si el usuario minimiza/bloquea el móvil
+document.addEventListener('visibilitychange', ()=>{
+  if(document.hidden) stopCamera();
+  else if(document.querySelector('.tab[data-panel="scan"]').classList.contains('active')) startCamera();
+});
+
+/* ========= PROCESAR CÓDIGO DETECTADO ========= */
+function handleDetectedCode(code){
+  if(!/^\d{13}$/.test(code)) return; // solo EAN-13
+
+  const now = Date.now();
+  const elapsed = now - lockedAt;
+  const cooldown = Number(document.getElementById('cfg-cooldown').value) || 2500;
+
+  const shouldCount = (code !== lockedCode) || (elapsed >= cooldown);
+  if(!shouldCount) return;
+
+  lockedCode = code;
+  lockedAt = now;
+
+  const qty = (scannedItems[code] || 0) + 1;
+  scannedItems[code] = qty;
+  localStorage.setItem('__scanned', JSON.stringify(scannedItems));
+
+  beep();
+  navigator.vibrate?.(80);
+  showToast(code, qty);
 }
 
 /* ========= TOAST ========= */
@@ -530,12 +573,9 @@ function showToast(code, qty){
 }
 
 /* ========= INVENTARIO ========= */
-function getScanKeys(){
-  return Object.keys(localStorage).filter(k=>k.startsWith('item_'));
-}
 function renderInventory(){
   const list = document.getElementById('inv-list');
-  const keys = getScanKeys();
+  const keys = Object.keys(scannedItems);
   let totalItems=0, totalVal=0;
 
   if(!keys.length){
@@ -546,9 +586,8 @@ function renderInventory(){
   }
 
   list.innerHTML='';
-  keys.forEach(k=>{
-    const code = k.replace('item_','');
-    const qty = Number(localStorage.getItem(k));
+  keys.forEach(code=>{
+    const qty = scannedItems[code];
     const p = PRODUCTS[code]||{name:'Desconocido',price:0};
     const total = (p.price*qty).toFixed(2);
     totalItems+=qty; totalVal+=p.price*qty;
@@ -558,15 +597,16 @@ function renderInventory(){
     div.innerHTML=`
       <div class="badge">${qty}</div>
       <div class="info">
-        <div class="name">${p.name}</div>
-        <div class="code">${code}</div>
+        <div class="name">${escapeHtml(p.name)}</div>
+        <div class="code">${escapeHtml(code)}</div>
       </div>
       <div class="price">
         <div class="unit">${p.price.toFixed(2)}€/u</div>
         <div class="total">${total}€</div>
       </div>
-      <button class="del-btn" title="Eliminar" onclick="deleteItem('${code}')">×</button>
+      <button class="del-btn" title="Eliminar" data-code="${escapeHtml(code)}">×</button>
     `;
+    div.querySelector('.del-btn').addEventListener('click', ()=>deleteItem(code));
     list.appendChild(div);
   });
 
@@ -574,7 +614,8 @@ function renderInventory(){
   document.getElementById('stat-total').textContent=totalVal.toFixed(2)+'€';
 }
 function deleteItem(code){
-  localStorage.removeItem('item_'+code);
+  delete scannedItems[code];
+  localStorage.setItem('__scanned', JSON.stringify(scannedItems));
   renderInventory();
 }
 
@@ -583,8 +624,9 @@ function saveProducts(){ localStorage.setItem('__products', JSON.stringify(PRODU
 function addProduct(){
   const code=document.getElementById('cfg-code').value.trim();
   const name=document.getElementById('cfg-name').value.trim();
-  const price=parseFloat(document.getElementById('cfg-price').value)||0;
+  const price=Math.max(0, parseFloat(document.getElementById('cfg-price').value)||0);
   if(!code||!name){ alert('Código y nombre obligatorios'); return; }
+  if(!/^\d{13}$/.test(code)){ alert('El código debe tener 13 dígitos (EAN-13)'); return; }
   PRODUCTS[code]={ name, price };
   saveProducts();
   document.getElementById('cfg-code').value='';
@@ -599,26 +641,30 @@ function renderProductsCfg(){
   const el=document.getElementById('products-cfg-list');
   const keys=Object.keys(PRODUCTS);
   if(!keys.length){ el.innerHTML='<div style="color:var(--muted);font-size:12px;padding:4px 0">Sin productos</div>'; return; }
-  el.innerHTML=keys.map(c=>`
-    <div class="product-cfg-item">
+  el.innerHTML='';
+  keys.forEach(c=>{
+    const div=document.createElement('div');
+    div.className='product-cfg-item';
+    div.innerHTML=`
       <div>
-        <div class="name-cfg">${PRODUCTS[c].name}</div>
-        <span>${c} · ${PRODUCTS[c].price.toFixed(2)}€</span>
+        <div class="name-cfg">${escapeHtml(PRODUCTS[c].name)}</div>
+        <span>${escapeHtml(c)} · ${PRODUCTS[c].price.toFixed(2)}€</span>
       </div>
-      <button onclick="deleteProduct('${c}')">✕</button>
-    </div>
-  `).join('');
+      <button data-code="${escapeHtml(c)}">✕</button>
+    `;
+    div.querySelector('button').addEventListener('click', ()=>deleteProduct(c));
+    el.appendChild(div);
+  });
 }
 
 /* ========= EXPORT ========= */
 function exportExcel(){
   const BOM='\uFEFF';
   let csv=BOM+'Codigo;Producto;Precio;Cantidad;Total\n';
-  getScanKeys().forEach(k=>{
-    const c=k.replace('item_','');
-    const q=Number(localStorage.getItem(k));
-    const p=PRODUCTS[c]||{name:'Desconocido',price:0};
-    csv+=`${c};${p.name};${p.price.toFixed(2)};${q};${(p.price*q).toFixed(2)}\n`;
+  Object.keys(scannedItems).forEach(code=>{
+    const q=scannedItems[code];
+    const p=PRODUCTS[code]||{name:'Desconocido',price:0};
+    csv+=`${csvSafe(code)};${csvSafe(p.name)};${p.price.toFixed(2)};${q};${(p.price*q).toFixed(2)}\n`;
   });
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
   const a=document.createElement('a');
@@ -630,7 +676,8 @@ function exportExcel(){
 /* ========= RESET ========= */
 function resetAll(){
   if(confirm('¿Borrar todo el inventario escaneado?')){
-    getScanKeys().forEach(k=>localStorage.removeItem(k));
+    scannedItems = {};
+    localStorage.setItem('__scanned', JSON.stringify(scannedItems));
     lockedCode=null;
     lockedAt=0;
     toast.classList.remove('show');
